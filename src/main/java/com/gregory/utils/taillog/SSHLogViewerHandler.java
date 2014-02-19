@@ -1,7 +1,6 @@
-package com.aestas.utils.logviewer;
+package com.gregory.utils.taillog;
 
-import org.apache.commons.io.input.Tailer;
-import org.apache.commons.io.input.TailerListenerAdapter;
+import com.jcraft.jsch.JSchException;
 import org.atmosphere.cpr.AtmosphereHandler;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceEvent;
@@ -10,43 +9,47 @@ import org.json.simple.JSONValue;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * @author luciano - luciano@aestasit.com
+ * Created with IntelliJ IDEA.
+ * User: Gera
+ * Date: 15.02.14
+ * Time: 1:45
+ * To change this template use File | Settings | File Templates.
  */
-public class LogViewerHandler extends TailerListenerAdapter implements AtmosphereHandler<HttpServletRequest, HttpServletResponse> {
-
-//    private final static String FILE_TO_WATCH = "/var/log/";
-    private final static String FILE_TO_WATCH = "D://Gera//GitHub//logviewer//tests";
-    private static Tailer tailer;
+public class SSHLogViewerHandler implements AtmosphereHandler<HttpServletRequest, HttpServletResponse>, SSHLogHandler{
+    //    private final static String FILE_TO_WATCH = "/var/log/";
+//    private final static String FILE_TO_WATCH = "D://Gera//GitHub//logviewer//tests";
+//    private static Tailer tailer;
+    private SSHLogTailer sshListener;
+    private Config config;
     private Broadcaster GLOBAL_BROADCASTER = null;
 
     //private Map<String, Broadcaster> brs = new HashMap<String, Broadcaster>();
 
-    private static List<String> watchableLogs = new ArrayList<String>();
+//    private static List<String> watchableLogs = new ArrayList<String>();
 
-    public LogViewerHandler() {
-        final File logsDir = new File(FILE_TO_WATCH);
-        if (logsDir.exists() && logsDir.isDirectory()) {
-            File[] logs = logsDir.listFiles();
-            for (File f : logs) {
-                if (f.getName().endsWith(".log")) {
-                    watchableLogs.add(f.getName());
-                }
-            }
-        } else {
-            System.out.println("either logsDir doesn't exist or is not a folder");
-        }
+    public SSHLogViewerHandler() {
+        config = Config.load();
+//        final File logsDir = new File(FILE_TO_WATCH);
+//        if (logsDir.exists() && logsDir.isDirectory()) {
+//            File[] logs = logsDir.listFiles();
+//            for (File f : logs) {
+//                if (f.getName().endsWith(".log")) {
+//                    watchableLogs.add(f.getName());
+//                }
+//            }
+//        } else {
+//            System.out.println("either logsDir doesn't exist or is not a folder");
+//        }
 
     }
 
     @Override
     public void onRequest(final AtmosphereResource<HttpServletRequest, HttpServletResponse> event) throws IOException {
-
         HttpServletRequest req = event.getRequest();
         HttpServletResponse res = event.getResponse();
         res.setContentType("text/html");
@@ -54,12 +57,11 @@ public class LogViewerHandler extends TailerListenerAdapter implements Atmospher
         res.addHeader("Pragma", "no-cache");
 
         if (req.getMethod().equalsIgnoreCase("GET")) {
-
             event.suspend();
             if (GLOBAL_BROADCASTER == null) GLOBAL_BROADCASTER = event.getBroadcaster();
 
-            if (watchableLogs.size() != 0) {
-                GLOBAL_BROADCASTER.broadcast(asJsonArray("logs", watchableLogs));
+            if (config.getLogFiles().size() != 0) {
+                GLOBAL_BROADCASTER.broadcast(asJsonArray("servers", config.getLogFiles()));
             }
 
             res.getWriter().flush();
@@ -67,10 +69,21 @@ public class LogViewerHandler extends TailerListenerAdapter implements Atmospher
 
             // Very lame... req.getParameterValues("log")[0] doesn't work
             final String postPayload = req.getReader().readLine();
-            if (postPayload != null && postPayload.startsWith("log=")) {
-                tailer = Tailer.create(new File(FILE_TO_WATCH + "//" + postPayload.split("=")[1]), this, 500);
+            String log = null;
+            if (postPayload != null && postPayload.contains("log=") && postPayload.contains("host=")) {
+                //TODO: get from payload log and host with normal regexp
+//                sshListener = SSHLogTailer.create(new File(FILE_TO_WATCH + "//" + postPayload.split("=")[1]), this, 500);
+                String[] str = postPayload.split("&");
+                String host = str[0].split("=")[1];
+                log = str[1].split("=")[1];
+
+                try {
+                    sshListener = SSHLogTailer.create(config.getTargetConfig(host, log), this, true);
+                } catch (JSchException e) {
+                    GLOBAL_BROADCASTER.broadcast(asJson("exception", e.getMessage()));
+                }
             }
-            GLOBAL_BROADCASTER.broadcast(asJson("filename", postPayload.split("=")[1]));
+            GLOBAL_BROADCASTER.broadcast(asJson("filename", log));
             res.getWriter().flush();
         }
     }
@@ -93,11 +106,10 @@ public class LogViewerHandler extends TailerListenerAdapter implements Atmospher
 
     @Override
     public void destroy() {
-        tailer.stop();
+        sshListener.stop();
     }
 
 
-    @Override
     public void handle(String line) {
         buffer.add(line);
         if (buffer.size() == 10) {
@@ -114,5 +126,4 @@ public class LogViewerHandler extends TailerListenerAdapter implements Atmospher
 
         return ("{\"" + key + "\":" + JSONValue.toJSONString(list) + "}");
     }
-
 }

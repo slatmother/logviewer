@@ -1,5 +1,6 @@
 <atmosphere-handlers>
-    <atmosphere-handler context-root="/logviewer" class-name="com.aestas.utils.logviewer.LogViewerHandler">
+    <!--<atmosphere-handler context-root="/logviewer" class-name="com.aestas.utils.logviewer.LogViewerHandler">-->
+    <atmosphere-handler context-root="/logviewer" class-name="com.gregory.utils.taillog.SSHLogViewerHandler">
         <!--<property name="name" value="FlickrHandler"/>-->
     </atmosphere-handler>
 </atmosphere-handlers>
